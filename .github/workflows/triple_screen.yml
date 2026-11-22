@@ -37,7 +37,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: 'pip'
+          # cache: 'pip'   <-- Removed to prevent the requirements.txt error
           
       - name: Install Dependencies
         run: pip install yfinance pandas numpy requests
@@ -55,10 +55,8 @@ jobs:
 
       - name: Run Scanner
         env:
-          # Your specific secrets for the Triple Screen bot
           TS_TELEGRAM_BOT_TOKEN: ${{ secrets.TS_TELEGRAM_BOT_TOKEN }}
           TS_TELEGRAM_CHAT_ID: ${{ secrets.TS_TELEGRAM_CHAT_ID }}
-          # Fallback secrets (if you didn't set the TS_ ones)
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
@@ -71,7 +69,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Add only the state file, if it exists
           if [ -f ts_state.json ]; then
             git add ts_state.json
             git diff --cached --quiet || (git commit -m "Update Triple Screen state" && git push)
