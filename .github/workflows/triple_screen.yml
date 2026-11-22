@@ -2,12 +2,14 @@ name: Elder Triple Screen Scanner
 
 on:
   schedule:
+    # Swing mode (Weekly Tide / Daily Wave): Tue-Sat at 06:30 UTC (after US daily close)
     - cron: "30 6 * * 2-6"
+    # Intraday mode (Daily Tide / Hourly Wave): Mon-Fri hourly during US session
     - cron: "30 14-20 * * 1-5"
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Scanner Mode'
+        description: 'Scanner Mode (weekly_daily for swing, daily_hourly for intraday)'
         required: true
         default: 'weekly_daily'
         type: choice
@@ -16,19 +18,29 @@ on:
         - daily_hourly
 
 permissions:
-  contents: write
+  contents: write   # Required to save the state file (ts_state.json) back to the repo
+
+concurrency:
+  group: elder-triple-screen
+  cancel-in-progress: false
 
 jobs:
   scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
       
-      - uses: actions/setup-python@v5
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: 'pip'
           
-      - run: pip install yfinance pandas numpy requests
+      - name: Install Dependencies
+        run: pip install yfinance pandas numpy requests
       
       - name: Determine Mode
         id: mode
@@ -41,21 +53,26 @@ jobs:
             echo "MODE=daily_hourly" >> $GITHUB_OUTPUT
           fi
 
-      - name: Verify Files (Debug)
-        run: |
-          echo "Listing all files in the current directory:"
-          ls -la
-
       - name: Run Scanner
         env:
+          # Your specific secrets for the Triple Screen bot
           TS_TELEGRAM_BOT_TOKEN: ${{ secrets.TS_TELEGRAM_BOT_TOKEN }}
           TS_TELEGRAM_CHAT_ID: ${{ secrets.TS_TELEGRAM_CHAT_ID }}
-        run: python elder_triple_screen.py --mode ${{ steps.mode.outputs.MODE }} --confirm --once
+          # Fallback secrets (if you didn't set the TS_ ones)
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python elder_triple_screen.py \
+            --mode ${{ steps.mode.outputs.MODE }} \
+            --confirm \
+            --once
 
-      - name: Save State
+      - name: Save Alert State
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add ts_state.json || true
-          git commit -m "Update Triple Screen state" || true
-          git push || true
+          # Add only the state file, if it exists
+          if [ -f ts_state.json ]; then
+            git add ts_state.json
+            git diff --cached --quiet || (git commit -m "Update Triple Screen state" && git push)
+          fi
