@@ -72,25 +72,22 @@ def load_watchlists(mode: str) -> list[str]:
     base = Path(__file__).parent / "watchlists"
     stock_tickers, forex_tickers = [], []
     
-    # Load Stocks
+    # Load Stocks (Handles both Dictionary {"AAPL": "Tech"} and List ["AAPL"])
     try:
         stocks = json.loads((base / "stocks.json").read_text())
-        if isinstance(stocks, dict):
-            stock_tickers = list(stocks.keys())
-        elif isinstance(stocks, list):
-            stock_tickers = stocks
-    except Exception:
-        pass
+        stock_tickers = list(stocks.keys()) if isinstance(stocks, dict) else stocks
+    except Exception as exc:
+        print(f"[warn] Could not load stocks.json: {exc}")
         
     # Load Forex
     try:
-        forex = json.loads((base / "forex.json").read_text())
-        forex_tickers = forex
-    except Exception:
-        pass
+        forex_tickers = json.loads((base / "forex.json").read_text())
+    except Exception as exc:
+        print(f"[warn] Could not load forex.json: {exc}")
         
-    # If intraday, limit stocks to avoid Yahoo rate limits
+    # If intraday, limit the *stocks* to the top 30, but keep all forex
     if mode == "daily_hourly":
+        print(f"Intraday mode: limiting stocks to first {INTRADAY_LIMIT}.")
         stock_tickers = stock_tickers[:INTRADAY_LIMIT]
 
     # Combine and deduplicate
