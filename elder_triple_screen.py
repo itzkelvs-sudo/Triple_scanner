@@ -2,13 +2,11 @@
 """
 Elder Triple Screen Trading System (Chapter 39)
 ===============================================
-Implements Dr. Alexander Elder's Triple Screen with his exact rules:
-  * Screen 1 (Tide)  : 13-period EMA on the higher timeframe.
-  * Screen 2 (Wave)  : 2-period Force Index on the lower timeframe.
-  * Screen 3 (Ripple): Entry 1 tick beyond the previous bar's extreme.
+Implements Dr. Alexander Elder's Triple Screen.
 
 Usage:
-    python elder_triple_screen.py --mode weekly_daily --tickers AAPL,MSFT,NVDA --confirm --once
+    python elder_triple_screen.py --mode weekly_daily --confirm --once
+    python elder_triple_screen.py --mode daily_hourly --confirm --once
 """
 
 from __future__ import annotations
@@ -26,6 +24,7 @@ import requests
 EMA_TREND = 13
 FORCE_N = 2
 STATE_FILE = Path("ts_state.json")
+INTRADAY_LIMIT = 30  # Max stocks to scan in daily_hourly mode to avoid Yahoo rate limits
 
 TIMEFRAMES = {
     "weekly_daily": {"tide": "1wk", "wave": "1d", "history_tide": "10y", "history_wave": "2y"},
@@ -68,10 +67,40 @@ def send_telegram(text: str) -> None:
         print(f"[telegram error] {exc}")
     time.sleep(1.0)
 
+# ════════════════════════════ WATCHLIST LOADING ════════════════════════════
+def load_watchlists(mode: str) -> list[str]:
+    base = Path(__file__).parent / "watchlists"
+    stock_tickers, forex_tickers = [], []
+    
+    # Load Stocks
+    try:
+        stocks = json.loads((base / "stocks.json").read_text())
+        if isinstance(stocks, dict):
+            stock_tickers = list(stocks.keys())
+        elif isinstance(stocks, list):
+            stock_tickers = stocks
+    except Exception:
+        pass
+        
+    # Load Forex
+    try:
+        forex = json.loads((base / "forex.json").read_text())
+        forex_tickers = forex
+    except Exception:
+        pass
+        
+    # If intraday, limit stocks to avoid Yahoo rate limits
+    if mode == "daily_hourly":
+        stock_tickers = stock_tickers[:INTRADAY_LIMIT]
+
+    # Combine and deduplicate
+    return list(dict.fromkeys(stock_tickers + forex_tickers))
+
 # ════════════════════════════ DATA ════════════════════════════
 def download(tickers: list[str], interval: str, period: str) -> dict[str, pd.DataFrame]:
     import yfinance as yf
     out = {}
+    if not tickers: return out
     try:
         raw = yf.download(tickers, period=period, interval=interval,
                           group_by="ticker", auto_adjust=True, progress=False, threads=True)
@@ -166,27 +195,30 @@ def scan_triple_screen(tickers: list[str], mode: str, confirm: bool, sent: set[s
 # ════════════════════════════ MAIN ════════════════════════════
 def main():
     ap = argparse.ArgumentParser(description="Elder Triple Screen Scanner")
-    ap.add_argument("--tickers", default="AAPL,MSFT,NVDA,SPY", help="Comma separated list")
+    ap.add_argument("--tickers", help="Comma separated list (overrides watchlists)")
     ap.add_argument("--mode", choices=["weekly_daily", "daily_hourly"], default="weekly_daily")
     ap.add_argument("--confirm", action="store_true", help="Require the breakout bar to close beyond the trigger price")
     ap.add_argument("--once", action="store_true", help="Run once and exit")
     args = ap.parse_args()
     
-    tickers = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
+    if args.tickers:
+        tickers = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
+    else:
+        tickers = load_watchlists(args.mode)
+        if not tickers:
+            tickers = ["AAPL", "MSFT", "NVDA", "SPY"]
+            
     sent = load_state()
     
-    # 1. Send Start Message
     start_msg = (f"🔄 Elder Triple Screen Scan Started\n"
                  f"Mode: {args.mode.replace('_', ' ').title()}\n"
                  f"Tickers: {len(tickers)}\n"
                  f"Confirmation: {'Require CLOSE' if args.confirm else 'Tick Breakout'}")
     send_telegram(start_msg)
-    print("Scan started. Downloading data...")
+    print(f"Scan started. Downloading data for {len(tickers)} tickers...")
     
-    # 2. Run Scan
     alerts = scan_triple_screen(tickers, args.mode, args.confirm, sent)
     
-    # 3. Send Alerts
     if alerts:
         chunk = ""
         for a in alerts:
@@ -198,8 +230,7 @@ def main():
         
     save_state(sent)
     
-    # 4. Send Finish Message
-    finish_msg = f"✅ Scan Complete\nFound {len(alerts)} valid setup(s)."
+    finish_msg = f"✅ Scan Complete\nScanned {len(tickers)} tickers.\nFound {len(alerts)} valid setup(s)."
     send_telegram(finish_msg)
     print(f"Done. {len(alerts)} alerts sent.")
 
