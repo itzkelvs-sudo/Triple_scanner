@@ -1,0 +1,61 @@
+name: Elder Triple Screen Scanner
+
+on:
+  schedule:
+    - cron: "30 6 * * 2-6"
+    - cron: "30 14-20 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Scanner Mode'
+        required: true
+        default: 'weekly_daily'
+        type: choice
+        options:
+        - weekly_daily
+        - daily_hourly
+
+permissions:
+  contents: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          
+      - run: pip install yfinance pandas numpy requests
+      
+      - name: Determine Mode
+        id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "MODE=${{ github.event.inputs.mode }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.schedule }}" = "30 6 * * 2-6" ]; then
+            echo "MODE=weekly_daily" >> $GITHUB_OUTPUT
+          else
+            echo "MODE=daily_hourly" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Verify Files (Debug)
+        run: |
+          echo "Listing all files in the current directory:"
+          ls -la
+
+      - name: Run Scanner
+        env:
+          TS_TELEGRAM_BOT_TOKEN: ${{ secrets.TS_TELEGRAM_BOT_TOKEN }}
+          TS_TELEGRAM_CHAT_ID: ${{ secrets.TS_TELEGRAM_CHAT_ID }}
+        run: python elder_triple_screen.py --mode ${{ steps.mode.outputs.MODE }} --tickers AAPL,MSFT,NVDA,SPY --confirm --once
+
+      - name: Save State
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ts_state.json || true
+          git commit -m "Update Triple Screen state" || true
+          git push || true
