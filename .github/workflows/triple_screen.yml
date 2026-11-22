@@ -50,7 +50,7 @@ jobs:
         env:
           TS_TELEGRAM_BOT_TOKEN: ${{ secrets.TS_TELEGRAM_BOT_TOKEN }}
           TS_TELEGRAM_CHAT_ID: ${{ secrets.TS_TELEGRAM_CHAT_ID }}
-        run: python elder_triple_screen.py --mode ${{ steps.mode.outputs.MODE }} --tickers AAPL,MSFT,NVDA,SPY --confirm --once
+        run: python elder_triple_screen.py --mode ${{ steps.mode.outputs.MODE }} --confirm --once
 
       - name: Save State
         run: |
